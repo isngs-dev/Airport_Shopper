@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { contactForm } from "@/content/copy";
 import { API_BASE } from "@/config";
 
-export type Meeting = { startISO: string };
+export type Meeting = { startISO: string; timeZone: string };
 
 /** Booking window reported by the server. Times are always shown in the host's time zone. */
 type Window = { timeZone: string; zoneName: string; minDate: string; maxDate: string };
@@ -94,7 +94,7 @@ export default function ScheduleModal({ open, busy, error, onBook, onSkip, onClo
       return;
     }
     setLocalError("");
-    const ok = await onBook({ startISO: chosen });
+    const ok = await onBook({ startISO: chosen, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
     // e.g. the time was just taken: refresh the list so it disappears
     if (!ok) loadSlots(date);
   };

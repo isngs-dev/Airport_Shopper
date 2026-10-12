@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { candidateSlots, ownerDate, removeBusy, rules, slotsForDate, zoneName } from "./slots.mjs";
 import { googleEnabled, getBusy, createMeeting } from "./google.mjs";
+import { bookedEmail, leadEmail, receivedEmail } from "./email.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(here, "../dist");
@@ -32,6 +33,8 @@ const env = {
   apiKey: process.env.SENDGRID_API_KEY || "",
   fromEmail: process.env.SENDGRID_FROM_EMAIL || "",
   fromName: process.env.SENDGRID_FROM_NAME || "iSN",
+  brand: process.env.EMAIL_BRAND || "Airport Mystery Shopping",
+  siteUrl: (process.env.SITE_URL || "").replace(/\/$/, ""),
   meetingLink: process.env.MEETING_LINK || "",
   notify: (process.env.NOTIFY_EMAIL || "").split(",").map((s) => s.trim()).filter(Boolean),
 };
@@ -52,7 +55,6 @@ const MIME = {
 
 /* ---------- helpers ---------- */
 
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const clean = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -89,7 +91,7 @@ function limited(ip) {
   return list.length > 8;
 }
 
-function formatWhen(iso) {
+function formatWhen(iso, timeZone = rules.timeZone) {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     day: "numeric",
@@ -98,7 +100,7 @@ function formatWhen(iso) {
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
-    timeZone: rules.timeZone,
+    timeZone,
   }).format(new Date(iso));
 }
 
@@ -142,6 +144,7 @@ async function sendMail({ to, subject, text, html, attachments }) {
         { type: "text/plain", value: text },
         { type: "text/html", value: html },
       ],
+      tracking_settings: { click_tracking: { enable: false, enable_text: false }, open_tracking: { enable: false } },
       ...(attachments ? { attachments } : {}),
     }),
   });
@@ -223,7 +226,17 @@ async function handleContact(req, res) {
     if (Number.isNaN(start.getTime()) || !candidateSlots(start.getTime(), start.getTime() + 1).includes(start.getTime())) {
       return json(res, 400, { error: "Please choose one of the available times." });
     }
-    booking = { start, when: formatWhen(start.toISOString()) };
+    // optional: the visitor's own zone, shown as a second line in the mail when it differs from the host's
+    const clientZone = clean(data.meeting.timeZone, 64);
+    let localWhen = "";
+    if (clientZone && clientZone !== rules.timeZone) {
+      try {
+        localWhen = formatWhen(start.toISOString(), clientZone);
+      } catch {
+        localWhen = "";
+      }
+    }
+    booking = { start, when: formatWhen(start.toISOString()), localWhen };
   }
 
   let link = env.meetingLink || (DRY_RUN ? "https://example.com/meeting-link" : "");
@@ -261,34 +274,40 @@ async function handleContact(req, res) {
 
   try {
     // 1. confirmation to the visitor
-    const subject = booking ? "Your call is booked" : "We have received your details";
-    const text = booking
-      ? `Hi ${name},\n\nThank you for getting in touch. Your call is booked for ${booking.when}.\n\nJoin the meeting here: ${link}\n\nA calendar invite is attached.\n\n${env.fromName}`
-      : `Hi ${name},\n\nThank you for getting in touch. We have received your details and will email you.\n\n${env.fromName}`;
-    const html = booking
-      ? `<p>Hi ${esc(name)},</p><p>Thank you for getting in touch. Your call is booked for <strong>${esc(booking.when)}</strong>.</p><p><a href="${esc(link)}">Join the meeting</a></p><p>A calendar invite is attached.</p><p>${esc(env.fromName)}</p>`
-      : `<p>Hi ${esc(name)},</p><p>Thank you for getting in touch. We have received your details and will email you.</p><p>${esc(env.fromName)}</p>`;
-    const attachments = booking
-      ? [
-          {
-            content: Buffer.from(buildIcs({ start: booking.start, link, name })).toString("base64"),
-            filename: "meeting.ics",
-            type: "text/calendar; method=REQUEST",
-            disposition: "attachment",
-          },
-        ]
-      : undefined;
-    await sendMail({ to: email, subject, text, html, attachments });
+    const person = { name, company, phone, email };
+    const common = { person, brand: env.brand, team: env.fromName, siteUrl: env.siteUrl, logoUrl: env.siteUrl ? `${env.siteUrl}/isn-logo.png` : "" };
+    let mail;
+    let attachments;
+    if (booking) {
+      const endMs = booking.start.getTime() + rules.durationMin * 60_000;
+      const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+      const calendarUrl =
+        "https://calendar.google.com/calendar/render?" +
+        new URLSearchParams({
+          action: "TEMPLATE",
+          text: `Call with ${env.fromName}`,
+          dates: `${stamp(booking.start.getTime())}/${stamp(endMs)}`,
+          details: `Meeting link: ${link}`,
+          location: link,
+        });
+      mail = bookedEmail({ ...common, when: booking.when, localWhen: booking.localWhen, durationMin: rules.durationMin, meetLink: link, calendarUrl });
+      attachments = [
+        {
+          content: Buffer.from(buildIcs({ start: booking.start, link, name })).toString("base64"),
+          filename: "meeting.ics",
+          type: "text/calendar; method=REQUEST",
+          disposition: "attachment",
+        },
+      ];
+    } else {
+      mail = receivedEmail(common);
+    }
+    await sendMail({ to: email, ...mail, attachments });
 
     // 2. copy of the lead for the team
     for (const to of env.notify) {
-      const lines = [`Name: ${name}`, `Company: ${company}`, `Phone: ${phone}`, `Email: ${email}`, booking ? `Call: ${booking.when}` : "Call: not booked"];
-      await sendMail({
-        to,
-        subject: booking ? `New lead with a call booked: ${name}` : `New lead: ${name}`,
-        text: lines.join("\n"),
-        html: `<p>${lines.map(esc).join("<br>")}</p>`,
-      });
+      const lead = leadEmail({ person, brand: env.brand, when: booking?.when, meetLink: booking ? link : "", logoUrl: common.logoUrl });
+      await sendMail({ to, ...lead });
     }
   } catch (err) {
     console.error("[contact] mail failed:", err.message);
