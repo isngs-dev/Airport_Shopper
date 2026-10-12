@@ -93,7 +93,7 @@ export function bookedEmail({ person, brand, team, when, localWhen, durationMin,
       row("Duration", `${durationMin} minutes`) +
       `</table>` +
       button(meetLink, "Join the meeting") +
-      p(`<a href="${esc(calendarUrl)}" style="color:${C.cyan};text-decoration:underline">Add to Google Calendar</a>&nbsp;&nbsp;<span style="color:${C.line}">|</span>&nbsp;&nbsp;A calendar invite is attached.`, "margin:22px 0 0;font-size:14px") +
+      p(`<a href="${esc(calendarUrl)}" style="color:${C.cyan};text-decoration:underline">Add to Google Calendar</a>`, "margin:22px 0 0;font-size:14px") +
       detailsBlock(person),
   });
   const text = [

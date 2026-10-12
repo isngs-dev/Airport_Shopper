@@ -18,7 +18,6 @@
  */
 import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { candidateSlots, ownerDate, removeBusy, rules, slotsForDate, zoneName } from "./slots.mjs";
@@ -102,30 +101,6 @@ function formatWhen(iso, timeZone = rules.timeZone) {
     timeZoneName: "short",
     timeZone,
   }).format(new Date(iso));
-}
-
-function icsDate(d) {
-  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-}
-
-function buildIcs({ start, link, name }) {
-  const end = new Date(start.getTime() + rules.durationMin * 60_000);
-  return [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//iSN//Contact//EN",
-    "METHOD:REQUEST",
-    "BEGIN:VEVENT",
-    `UID:${randomUUID()}@airport-shopper`,
-    `DTSTAMP:${icsDate(new Date())}`,
-    `DTSTART:${icsDate(start)}`,
-    `DTEND:${icsDate(end)}`,
-    `SUMMARY:Call with ${env.fromName}`,
-    `DESCRIPTION:Meeting link: ${link}\\nBooked by ${name}`,
-    `LOCATION:${link}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
-  ].join("\r\n");
 }
 
 async function sendMail({ to, subject, text, html, attachments }) {
@@ -277,7 +252,6 @@ async function handleContact(req, res) {
     const person = { name, company, phone, email };
     const common = { person, brand: env.brand, team: env.fromName, siteUrl: env.siteUrl, logoUrl: env.siteUrl ? `${env.siteUrl}/isn-logo.png` : "" };
     let mail;
-    let attachments;
     if (booking) {
       const endMs = booking.start.getTime() + rules.durationMin * 60_000;
       const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -291,18 +265,10 @@ async function handleContact(req, res) {
           location: link,
         });
       mail = bookedEmail({ ...common, when: booking.when, localWhen: booking.localWhen, durationMin: rules.durationMin, meetLink: link, calendarUrl });
-      attachments = [
-        {
-          content: Buffer.from(buildIcs({ start: booking.start, link, name })).toString("base64"),
-          filename: "meeting.ics",
-          type: "text/calendar; method=REQUEST",
-          disposition: "attachment",
-        },
-      ];
     } else {
       mail = receivedEmail(common);
     }
-    await sendMail({ to: email, ...mail, attachments });
+    await sendMail({ to: email, ...mail });
 
     // 2. copy of the lead for the team
     for (const to of env.notify) {

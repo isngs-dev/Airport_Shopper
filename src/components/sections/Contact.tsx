@@ -3,6 +3,7 @@ import { contactForm, ui } from "@/content/copy";
 import { API_BASE } from "@/config";
 import { ClipReveal, Reveal } from "@/components/ui/Reveal";
 import ScheduleModal, { type Meeting } from "@/components/ui/ScheduleModal";
+import SuccessTick from "@/components/ui/SuccessTick";
 
 type Values = { name: string; company: string; phone: string; email: string };
 type Errors = Partial<Record<keyof Values, string>>;
@@ -96,9 +97,12 @@ export default function Contact() {
           <Reveal className="mt-10" delay={0.1}>
             <div className="glass p-6 sm:p-9">
               {done ? (
-                <p role="status" className="py-8 text-center text-lg text-paper">
-                  {status === "booked" ? contactForm.successBooked : contactForm.success}
-                </p>
+                <div className="flex flex-col items-center gap-6 py-8 text-center">
+                  <SuccessTick />
+                  <p role="status" className="text-lg leading-relaxed text-paper">
+                    {status === "booked" ? contactForm.successBooked : contactForm.success}
+                  </p>
+                </div>
               ) : (
                 <form onSubmit={onSubmit} noValidate className="space-y-4">
                   {FIELDS.map((f) => {
