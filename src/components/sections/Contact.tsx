@@ -2,10 +2,11 @@ import { useState, type FormEvent } from "react";
 import { contactForm, ui } from "@/content/copy";
 import { FORM_ENDPOINT } from "@/config";
 import { ClipReveal, Reveal } from "@/components/ui/Reveal";
+import ScheduleModal, { type Meeting } from "@/components/ui/ScheduleModal";
 
 type Values = { name: string; company: string; phone: string; email: string };
 type Errors = Partial<Record<keyof Values, string>>;
-type Status = "idle" | "sending" | "success" | "error";
+type Status = "idle" | "scheduling" | "sending" | "booked" | "sent";
 
 const EMPTY: Values = { name: "", company: "", phone: "", email: "" };
 
@@ -29,47 +30,55 @@ export default function Contact() {
   const [values, setValues] = useState<Values>(EMPTY);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<Status>("idle");
-  const [message, setMessage] = useState("");
+  const [sendError, setSendError] = useState("");
+  /** true while a request is in flight (the dialog stays open and shows it) */
+  const [busy, setBusy] = useState(false);
 
-  const onSubmit = async (ev: FormEvent) => {
+  // step 1: validate, then ask whether they want to book a call
+  const onSubmit = (ev: FormEvent) => {
     ev.preventDefault();
-    if (status === "sending") return;
     const found = validate(values);
     setErrors(found);
     if (Object.keys(found).length) {
-      // move focus to the first invalid field
       const first = FIELDS.find((f) => found[f.key]);
       if (first) document.getElementById(`contact-${first.key}`)?.focus();
       return;
     }
+    setSendError("");
+    setStatus("scheduling");
+  };
 
-    setStatus("sending");
-    setMessage("");
+  // step 2: send once, with or without a meeting; the server picks the matching confirmation mail
+  const send = async (meeting?: Meeting) => {
+    if (busy) return;
+    setBusy(true);
+    setSendError("");
     try {
-      if (FORM_ENDPOINT) {
-        const res = await fetch(FORM_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: values.name.trim(),
-            company: values.company.trim(),
-            phone: values.phone.trim(),
-            email: values.email.trim(),
-          }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      } else if (import.meta.env.DEV) {
-        console.warn("[contact form] VITE_FORM_ENDPOINT is not set: simulating success (dev only)");
-      } else {
-        throw new Error("not-connected");
+      const res = await fetch(FORM_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: values.name.trim(),
+          company: values.company.trim(),
+          phone: values.phone.trim(),
+          email: values.email.trim(),
+          ...(meeting ? { meeting } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || contactForm.errors.send);
       }
-      setStatus("success");
+      setStatus(meeting ? "booked" : "sent");
       setValues(EMPTY);
     } catch (err) {
-      setStatus("error");
-      setMessage(err instanceof Error && err.message === "not-connected" ? contactForm.errors.notConnected : contactForm.errors.send);
+      setSendError(err instanceof Error && err.message ? err.message : contactForm.errors.send);
+    } finally {
+      setBusy(false);
     }
   };
+
+  const done = status === "booked" || status === "sent";
 
   return (
     <section id="contact" tabIndex={-1} aria-labelledby="contact-h" className="relative z-[2] py-24 outline-none sm:py-32">
@@ -84,9 +93,9 @@ export default function Contact() {
 
           <Reveal className="mt-10" delay={0.1}>
             <div className="glass p-6 sm:p-9">
-              {status === "success" ? (
+              {done ? (
                 <p role="status" className="py-8 text-center text-lg text-paper">
-                  {contactForm.success}
+                  {status === "booked" ? contactForm.successBooked : contactForm.success}
                 </p>
               ) : (
                 <form onSubmit={onSubmit} noValidate className="space-y-4">
@@ -123,19 +132,24 @@ export default function Contact() {
                     );
                   })}
 
-                  <button type="submit" disabled={status === "sending"} data-cursor="hover" className="btn-apply mt-2 w-full justify-center disabled:opacity-70">
-                    <span className="btn-label">{status === "sending" ? contactForm.sending : contactForm.submit}</span>
+                  <button type="submit" data-cursor="hover" className="btn-apply mt-2 w-full justify-center">
+                    <span className="btn-label">{contactForm.submit}</span>
                   </button>
-
-                  <p role="alert" className="min-h-5 text-center text-sm text-red-300">
-                    {status === "error" ? message : ""}
-                  </p>
                 </form>
               )}
             </div>
           </Reveal>
         </div>
       </ClipReveal>
+
+      <ScheduleModal
+        open={status === "scheduling"}
+        busy={busy}
+        error={sendError}
+        onBook={(m) => void send(m)}
+        onSkip={() => void send()}
+        onClose={() => setStatus("idle")}
+      />
     </section>
   );
 }

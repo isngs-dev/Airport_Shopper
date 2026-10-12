@@ -4,8 +4,5 @@
  */
 export const APPLY_URL: string = import.meta.env.VITE_APPLY_URL || "https://example.com/apply";
 
-/**
- * Endpoint that receives the contact form as JSON (name, company, phone, email).
- * Set VITE_FORM_ENDPOINT at build time. Without it the form only simulates success in dev.
- */
-export const FORM_ENDPOINT: string = import.meta.env.VITE_FORM_ENDPOINT || "";
+/** Contact form endpoint. Defaults to the bundled server (server/index.mjs); override with VITE_FORM_ENDPOINT. */
+export const FORM_ENDPOINT: string = import.meta.env.VITE_FORM_ENDPOINT || "/api/contact";

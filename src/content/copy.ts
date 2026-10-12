@@ -100,14 +100,28 @@ export const contactForm = {
   },
   submit: "Submit",
   sending: "Sending...",
-  success: "Thank you. We have received your details.",
+  success: "Thank you. We have sent you a confirmation email.",
+  successBooked: "Your call is booked. We have sent a confirmation email with the meeting link.",
+  schedule: {
+    heading: "Schedule a Meet",
+    intro: "Pick a date and time for a call, or skip it and we will just email you.",
+    date: "Date",
+    time: "Time",
+    timePlaceholder: "Select a time",
+    book: "Book my call",
+    skip: "No, thanks, just email me",
+    close: "Close",
+    errors: {
+      pick: "Please choose a date and a time.",
+      past: "Please choose a time in the future.",
+    },
+  },
   errors: {
     name: "Please enter your name.",
     company: "Please enter your company name.",
     phone: "Please enter a valid phone number.",
     email: "Please enter a valid email address.",
     send: "Something went wrong. Please try again.",
-    notConnected: "This form is not connected yet. Set VITE_FORM_ENDPOINT.",
   },
 } as const;
 

@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // `npm run dev:api` runs the mail server on 8787; forward /api to it during development
+  server: { proxy: { "/api": "http://localhost:8787" } },
   // `npm start` serves the built dist/ (used when deployed as a Render web service)
   preview: { host: true, port: Number(process.env.PORT) || 3108, allowedHosts: true },
   build: {

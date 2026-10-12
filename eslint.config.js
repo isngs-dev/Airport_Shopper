@@ -14,6 +14,10 @@ export default tseslint.config(
     rules: { ...reactHooks.configs.recommended.rules },
   },
   {
+    files: ["server/**/*.mjs"],
+    languageOptions: { globals: globals.node },
+  },
+  {
     // R3F scenes mutate three.js objects inside useFrame by design.
     files: ["src/components/three/**/*.{ts,tsx}"],
     rules: { "react-hooks/immutability": "off", "react-hooks/purity": "off" },

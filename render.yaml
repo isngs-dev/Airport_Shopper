@@ -1,27 +1,24 @@
 services:
   - type: web
     name: airport-shopper
-    runtime: static
+    runtime: node
     buildCommand: npm ci && npm run build
-    staticPublishPath: dist
+    startCommand: npm start
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: 22
-      # Destination of all three APPLY buttons (baked in at build time)
+      # baked into the site at build time
       - key: VITE_APPLY_URL
         sync: false
-      # Receives the contact form as a JSON POST
-      - key: VITE_FORM_ENDPOINT
+      # read by the server at runtime (secrets: keep them in Render, never in git)
+      - key: SENDGRID_API_KEY
         sync: false
-    routes:
-      # single-page app: always serve index.html
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /assets/*
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
-      - path: /fonts/*
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      - key: SENDGRID_FROM_NAME
+        value: iSN
+      - key: MEETING_LINK
+        sync: false
+      - key: NOTIFY_EMAIL
+        sync: false
