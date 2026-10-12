@@ -10,6 +10,9 @@ services:
       # Destination of all three APPLY buttons (baked in at build time)
       - key: VITE_APPLY_URL
         sync: false
+      # Receives the contact form as a JSON POST
+      - key: VITE_FORM_ENDPOINT
+        sync: false
     routes:
       # single-page app: always serve index.html
       - type: rewrite

@@ -7,6 +7,7 @@ import Hero from "@/components/sections/Hero";
 import About from "@/components/sections/About";
 import Steps from "@/components/sections/Steps";
 import Payment from "@/components/sections/Payment";
+import Contact from "@/components/sections/Contact";
 import FinalCta from "@/components/sections/FinalCta";
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
         <About />
         <Steps />
         <Payment />
+        <Contact />
         <FinalCta />
       </main>
     </SmoothScroll>

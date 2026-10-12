@@ -89,6 +89,28 @@ export const content = {
   },
 } as const;
 
+/** Contact form copy (added after the original brief). Field labels follow the supplied form design. */
+export const contactForm = {
+  heading: "Get in Touch",
+  fields: {
+    name: "Name",
+    company: "Company Name",
+    phone: "Phone",
+    email: "Email",
+  },
+  submit: "Submit",
+  sending: "Sending...",
+  success: "Thank you. We have received your details.",
+  errors: {
+    name: "Please enter your name.",
+    company: "Please enter your company name.",
+    phone: "Please enter a valid phone number.",
+    email: "Please enter a valid email address.",
+    send: "Something went wrong. Please try again.",
+    notConnected: "This form is not connected yet. Set VITE_FORM_ENDPOINT.",
+  },
+} as const;
+
 export const ui = {
   siteName: "Airport Mystery Shopping",
   nav: {
@@ -97,6 +119,7 @@ export const ui = {
       { id: "about", label: "The Project" },
       { id: "steps", label: "Your Tasks" },
       { id: "payment", label: "Payment" },
+      { id: "contact", label: "Contact" },
     ],
     skip: "Skip to content",
   },
@@ -105,7 +128,8 @@ export const ui = {
     about: "01 / About the project",
     steps: "02 / What you need to do",
     payment: "03 / Payment",
-    finalCta: "04 / Apply",
+    contact: "04 / Contact",
+    finalCta: "05 / Apply",
   },
   board: { departures: "DEPARTURES", status: "NOW BOARDING" },
   pass: { label: "BOARDING PASS", step: "STEP", of: "OF", phase: ["BEFORE", "DURING", "SUBMIT"] },
