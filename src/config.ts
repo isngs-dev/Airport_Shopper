@@ -4,5 +4,5 @@
  */
 export const APPLY_URL: string = import.meta.env.VITE_APPLY_URL || "https://example.com/apply";
 
-/** Contact form endpoint. Defaults to the bundled server (server/index.mjs); override with VITE_FORM_ENDPOINT. */
-export const FORM_ENDPOINT: string = import.meta.env.VITE_FORM_ENDPOINT || "/api/contact";
+/** Base URL of the API (/api/contact, /api/slots). Empty = same origin, i.e. the bundled server in server/. */
+export const API_BASE: string = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");

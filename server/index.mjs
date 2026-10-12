@@ -8,6 +8,10 @@
  *   SENDGRID_FROM_NAME    Sender display name (default "iSN").
  *   MEETING_LINK          Meeting URL included in the mail when the visitor books a call.
  *   NOTIFY_EMAIL          Optional. Receives a copy of every lead (comma separated for several).
+ *   GOOGLE_*              Optional Google Calendar integration, see server/google.mjs. When enabled, booked calls
+ *                         get a Google Meet link and busy times on the calendar are not offered. Otherwise
+ *                         MEETING_LINK is used.
+ *   MEETING_*             Working hours / time zone / slot length, see server/slots.mjs.
  *   PORT                  Port to listen on (Render sets it; default 8787).
  *
  * No dependencies: uses Node's http module and the global fetch.
@@ -17,6 +21,8 @@ import { readFile, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { candidateSlots, removeBusy, rules } from "./slots.mjs";
+import { googleEnabled, getBusy, createMeeting } from "./google.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(here, "../dist");
@@ -30,6 +36,7 @@ const env = {
   notify: (process.env.NOTIFY_EMAIL || "").split(",").map((s) => s.trim()).filter(Boolean),
 };
 const DRY_RUN = !env.apiKey;
+const DAY = 86_400_000;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -91,7 +98,7 @@ function icsDate(d) {
 }
 
 function buildIcs({ start, link, name }) {
-  const end = new Date(start.getTime() + 30 * 60_000);
+  const end = new Date(start.getTime() + rules.durationMin * 60_000);
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -135,11 +142,42 @@ async function sendMail({ to, subject, text, html, attachments }) {
   }
 }
 
+/* ---------- /api/slots ---------- */
+
+const slotHits = new Map();
+function slotsLimited(ip) {
+  const now = Date.now();
+  const list = (slotHits.get(ip) || []).filter((t) => now - t < 3_600_000);
+  list.push(now);
+  slotHits.set(ip, list);
+  return list.length > 120;
+}
+
+const clientIp = (req) => (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+
+/** Free slots between ?from and ?to (ISO instants, at most 48 hours apart). */
+async function handleSlots(req, res, url) {
+  if (slotsLimited(clientIp(req))) return json(res, 429, { error: "Too many requests. Please try again later." });
+  const from = Date.parse(url.searchParams.get("from") || "");
+  const to = Date.parse(url.searchParams.get("to") || "");
+  if (Number.isNaN(from) || Number.isNaN(to) || to <= from || to - from > 2 * DAY) return json(res, 400, { error: "Invalid range." });
+
+  let slots = candidateSlots(from, to);
+  if (slots.length && googleEnabled) {
+    try {
+      slots = removeBusy(slots, await getBusy(from, to));
+    } catch (err) {
+      console.error("[slots] calendar lookup failed:", err.message);
+      return json(res, 502, { error: "Could not load available times. Please try again." });
+    }
+  }
+  json(res, 200, { slots: slots.map((t) => new Date(t).toISOString()), durationMin: rules.durationMin });
+}
+
 /* ---------- /api/contact ---------- */
 
 async function handleContact(req, res) {
-  const ip = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() || req.socket.remoteAddress || "unknown";
-  if (limited(ip)) return json(res, 429, { error: "Too many requests. Please try again later." });
+  if (limited(clientIp(req))) return json(res, 429, { error: "Too many requests. Please try again later." });
 
   let data;
   try {
@@ -166,14 +204,37 @@ async function handleContact(req, res) {
     } catch {
       return json(res, 400, { error: "Invalid time zone." });
     }
-    const now = Date.now();
-    if (Number.isNaN(start.getTime()) || start.getTime() < now || start.getTime() > now + 120 * 86_400_000) {
-      return json(res, 400, { error: "Please choose a date and time in the future." });
+    // the time must be one of the real slots (working hours, notice period, not in the past)
+    if (Number.isNaN(start.getTime()) || !candidateSlots(start.getTime(), start.getTime() + 1).includes(start.getTime())) {
+      return json(res, 400, { error: "Please choose one of the available times." });
     }
     booking = { start, timeZone, when: formatWhen(start.toISOString(), timeZone) };
   }
 
-  const link = env.meetingLink || (DRY_RUN ? "https://example.com/meeting-link" : "");
+  let link = env.meetingLink || (DRY_RUN ? "https://example.com/meeting-link" : "");
+  if (booking && googleEnabled) {
+    try {
+      // re-check right before booking: someone may have taken the slot since the list was loaded
+      const busy = await getBusy(booking.start.getTime(), booking.start.getTime() + rules.durationMin * 60_000);
+      if (removeBusy([booking.start.getTime()], busy).length === 0) {
+        return json(res, 409, { error: "That time was just taken. Please choose another." });
+      }
+      link = (
+        await createMeeting({
+          startMs: booking.start.getTime(),
+          durationMin: rules.durationMin,
+          name,
+          email,
+          company,
+          phone,
+          ownerName: env.fromName,
+        })
+      ).meetLink;
+    } catch (err) {
+      console.error("[contact] calendar booking failed:", err.message);
+      return json(res, 502, { error: "We could not book that time. Please try again." });
+    }
+  }
   if (booking && !link) {
     console.error("MEETING_LINK is not set");
     return json(res, 500, { error: "Booking is temporarily unavailable. Please choose 'No, thanks, just email me'." });
@@ -257,6 +318,10 @@ http
     try {
       const { pathname } = new URL(req.url, "http://x");
       if (pathname === "/healthz") return json(res, 200, { ok: true });
+      if (pathname === "/api/slots") {
+        if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
+        return await handleSlots(req, res, new URL(req.url, "http://x"));
+      }
       if (pathname === "/api/contact") {
         if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
         return await handleContact(req, res);
@@ -269,5 +334,5 @@ http
     }
   })
   .listen(PORT, () => {
-    console.log(`Server on :${PORT}${DRY_RUN ? " (SendGrid not configured: dry-run mode, mails are only logged)" : ""}`);
+    console.log(`Server on :${PORT}${DRY_RUN ? " (SendGrid not configured: dry-run mode, mails are only logged)" : ""}${googleEnabled ? " | Google Calendar on" : " | fixed MEETING_LINK mode"}`);
   });

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { contactForm, ui } from "@/content/copy";
-import { FORM_ENDPOINT } from "@/config";
+import { API_BASE } from "@/config";
 import { ClipReveal, Reveal } from "@/components/ui/Reveal";
 import ScheduleModal, { type Meeting } from "@/components/ui/ScheduleModal";
 
@@ -49,12 +49,12 @@ export default function Contact() {
   };
 
   // step 2: send once, with or without a meeting; the server picks the matching confirmation mail
-  const send = async (meeting?: Meeting) => {
-    if (busy) return;
+  const send = async (meeting?: Meeting): Promise<boolean> => {
+    if (busy) return false;
     setBusy(true);
     setSendError("");
     try {
-      const res = await fetch(FORM_ENDPOINT, {
+      const res = await fetch(`${API_BASE}/api/contact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -71,8 +71,10 @@ export default function Contact() {
       }
       setStatus(meeting ? "booked" : "sent");
       setValues(EMPTY);
+      return true;
     } catch (err) {
       setSendError(err instanceof Error && err.message ? err.message : contactForm.errors.send);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -146,7 +148,7 @@ export default function Contact() {
         open={status === "scheduling"}
         busy={busy}
         error={sendError}
-        onBook={(m) => void send(m)}
+        onBook={(m) => send(m)}
         onSkip={() => void send()}
         onClose={() => setStatus("idle")}
       />

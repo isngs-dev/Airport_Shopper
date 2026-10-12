@@ -2,5 +2,5 @@
 
 interface ImportMetaEnv {
   readonly VITE_APPLY_URL?: string;
-  readonly VITE_FORM_ENDPOINT?: string;
+  readonly VITE_API_BASE?: string;
 }

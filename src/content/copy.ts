@@ -107,13 +107,15 @@ export const contactForm = {
     intro: "Pick a date and time for a call, or skip it and we will just email you.",
     date: "Date",
     time: "Time",
-    timePlaceholder: "Select a time",
+    pickDate: "Choose a date to see the available times.",
+    loading: "Loading available times...",
+    none: "No times available on this date. Please try another day.",
     book: "Book my call",
     skip: "No, thanks, just email me",
     close: "Close",
     errors: {
       pick: "Please choose a date and a time.",
-      past: "Please choose a time in the future.",
+      load: "Could not load available times. Please try again.",
     },
   },
   errors: {
