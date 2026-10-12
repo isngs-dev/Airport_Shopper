@@ -7,7 +7,7 @@
 const MIN = 60_000;
 
 export const rules = {
-  timeZone: process.env.MEETING_TIMEZONE || "Asia/Kolkata",
+  timeZone: process.env.MEETING_TIMEZONE || "America/New_York",
   startHour: Number(process.env.MEETING_START_HOUR ?? 9),
   endHour: Number(process.env.MEETING_END_HOUR ?? 18),
   durationMin: Number(process.env.MEETING_DURATION_MIN ?? 30),
@@ -49,4 +49,23 @@ export function removeBusy(slots, busy) {
   const dur = rules.durationMin * MIN;
   const ranges = busy.map((b) => [Date.parse(b.start), Date.parse(b.end)]);
   return slots.filter((s) => !ranges.some(([a, b]) => s < b && s + dur > a));
+}
+
+const dateFmt = new Intl.DateTimeFormat("en-CA", { timeZone: rules.timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** yyyy-mm-dd of an instant in the owner's time zone. */
+export const ownerDate = (ms) => dateFmt.format(new Date(ms));
+
+/** Allowed slot starts (ms) on one calendar day (yyyy-mm-dd) in the owner's time zone. */
+export function slotsForDate(day, now = Date.now()) {
+  const [y, m, d] = day.split("-").map(Number);
+  const noonUtc = Date.UTC(y, m - 1, d, 12);
+  // a local day spans at most ~26h in UTC terms; take a generous window and keep only slots that fall on `day`
+  return candidateSlots(noonUtc - 20 * 3_600_000, noonUtc + 20 * 3_600_000, now).filter((t) => ownerDate(t) === day);
+}
+
+/** Long zone name for display, e.g. "Eastern Daylight Time". */
+export function zoneName(ms = Date.now()) {
+  const part = new Intl.DateTimeFormat("en-US", { timeZone: rules.timeZone, timeZoneName: "long" }).formatToParts(new Date(ms)).find((p) => p.type === "timeZoneName");
+  return part ? part.value : rules.timeZone;
 }

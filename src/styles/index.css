@@ -270,6 +270,22 @@ html.has-cursor * {
   border-color: var(--color-amber);
 }
 
+/* The custom cursor lives below the browser's top layer, so a modal <dialog> would hide it:
+   hand the pointer back to the system while a dialog is open. */
+html.has-cursor:has(dialog[open]),
+html.has-cursor:has(dialog[open]) * {
+  cursor: auto !important;
+}
+html.has-cursor:has(dialog[open]) button,
+html.has-cursor:has(dialog[open]) select,
+html.has-cursor:has(dialog[open]) input[type="date"] {
+  cursor: pointer !important;
+}
+html:has(dialog[open]) .cursor-dot,
+html:has(dialog[open]) .cursor-ring {
+  display: none;
+}
+
 /* ---------- Split-flap tiles ---------- */
 
 .flap-tile {

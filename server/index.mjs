@@ -21,7 +21,7 @@ import { readFile, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { candidateSlots, removeBusy, rules } from "./slots.mjs";
+import { candidateSlots, ownerDate, removeBusy, rules, slotsForDate, zoneName } from "./slots.mjs";
 import { googleEnabled, getBusy, createMeeting } from "./google.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -89,8 +89,17 @@ function limited(ip) {
   return list.length > 8;
 }
 
-function formatWhen(iso, timeZone) {
-  return new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone }).format(new Date(iso));
+function formatWhen(iso) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+    timeZone: rules.timeZone,
+  }).format(new Date(iso));
 }
 
 function icsDate(d) {
@@ -155,23 +164,35 @@ function slotsLimited(ip) {
 
 const clientIp = (req) => (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() || req.socket.remoteAddress || "unknown";
 
-/** Free slots between ?from and ?to (ISO instants, at most 48 hours apart). */
+/**
+ * GET /api/slots            -> { timeZone, zoneName, minDate, maxDate }  (the booking window, in the owner's time zone)
+ * GET /api/slots?date=Y-M-D -> { slots: [ISO...], ... }                  free slots on that day in the owner's time zone
+ */
 async function handleSlots(req, res, url) {
   if (slotsLimited(clientIp(req))) return json(res, 429, { error: "Too many requests. Please try again later." });
-  const from = Date.parse(url.searchParams.get("from") || "");
-  const to = Date.parse(url.searchParams.get("to") || "");
-  if (Number.isNaN(from) || Number.isNaN(to) || to <= from || to - from > 2 * DAY) return json(res, 400, { error: "Invalid range." });
+  const now = Date.now();
+  const window = {
+    timeZone: rules.timeZone,
+    zoneName: zoneName(now),
+    durationMin: rules.durationMin,
+    minDate: ownerDate(now),
+    maxDate: ownerDate(now + rules.maxDays * DAY),
+  };
+  const day = url.searchParams.get("date");
+  if (!day) return json(res, 200, window);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return json(res, 400, { error: "Invalid date." });
 
-  let slots = candidateSlots(from, to);
+  let slots = slotsForDate(day, now);
   if (slots.length && googleEnabled) {
     try {
-      slots = removeBusy(slots, await getBusy(from, to));
+      const busy = await getBusy(slots[0], slots[slots.length - 1] + rules.durationMin * 60_000);
+      slots = removeBusy(slots, busy);
     } catch (err) {
       console.error("[slots] calendar lookup failed:", err.message);
       return json(res, 502, { error: "Could not load available times. Please try again." });
     }
   }
-  json(res, 200, { slots: slots.map((t) => new Date(t).toISOString()), durationMin: rules.durationMin });
+  json(res, 200, { ...window, slots: slots.map((t) => new Date(t).toISOString()) });
 }
 
 /* ---------- /api/contact ---------- */
@@ -198,17 +219,11 @@ async function handleContact(req, res) {
   let booking = null;
   if (data.meeting && typeof data.meeting === "object") {
     const start = new Date(data.meeting.startISO);
-    const timeZone = clean(data.meeting.timeZone, 64) || "UTC";
-    try {
-      new Intl.DateTimeFormat("en-GB", { timeZone });
-    } catch {
-      return json(res, 400, { error: "Invalid time zone." });
-    }
     // the time must be one of the real slots (working hours, notice period, not in the past)
     if (Number.isNaN(start.getTime()) || !candidateSlots(start.getTime(), start.getTime() + 1).includes(start.getTime())) {
       return json(res, 400, { error: "Please choose one of the available times." });
     }
-    booking = { start, timeZone, when: formatWhen(start.toISOString(), timeZone) };
+    booking = { start, when: formatWhen(start.toISOString()) };
   }
 
   let link = env.meetingLink || (DRY_RUN ? "https://example.com/meeting-link" : "");
@@ -248,10 +263,10 @@ async function handleContact(req, res) {
     // 1. confirmation to the visitor
     const subject = booking ? "Your call is booked" : "We have received your details";
     const text = booking
-      ? `Hi ${name},\n\nThank you for getting in touch. Your call is booked for ${booking.when} (${booking.timeZone}).\n\nJoin the meeting here: ${link}\n\nA calendar invite is attached.\n\n${env.fromName}`
+      ? `Hi ${name},\n\nThank you for getting in touch. Your call is booked for ${booking.when}.\n\nJoin the meeting here: ${link}\n\nA calendar invite is attached.\n\n${env.fromName}`
       : `Hi ${name},\n\nThank you for getting in touch. We have received your details and will email you.\n\n${env.fromName}`;
     const html = booking
-      ? `<p>Hi ${esc(name)},</p><p>Thank you for getting in touch. Your call is booked for <strong>${esc(booking.when)}</strong> (${esc(booking.timeZone)}).</p><p><a href="${esc(link)}">Join the meeting</a></p><p>A calendar invite is attached.</p><p>${esc(env.fromName)}</p>`
+      ? `<p>Hi ${esc(name)},</p><p>Thank you for getting in touch. Your call is booked for <strong>${esc(booking.when)}</strong>.</p><p><a href="${esc(link)}">Join the meeting</a></p><p>A calendar invite is attached.</p><p>${esc(env.fromName)}</p>`
       : `<p>Hi ${esc(name)},</p><p>Thank you for getting in touch. We have received your details and will email you.</p><p>${esc(env.fromName)}</p>`;
     const attachments = booking
       ? [
@@ -267,7 +282,7 @@ async function handleContact(req, res) {
 
     // 2. copy of the lead for the team
     for (const to of env.notify) {
-      const lines = [`Name: ${name}`, `Company: ${company}`, `Phone: ${phone}`, `Email: ${email}`, booking ? `Call: ${booking.when} (${booking.timeZone})` : "Call: not booked"];
+      const lines = [`Name: ${name}`, `Company: ${company}`, `Phone: ${phone}`, `Email: ${email}`, booking ? `Call: ${booking.when}` : "Call: not booked"];
       await sendMail({
         to,
         subject: booking ? `New lead with a call booked: ${name}` : `New lead: ${name}`,

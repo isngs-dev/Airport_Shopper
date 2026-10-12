@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { contactForm, ui } from "@/content/copy";
+import { API_BASE } from "@/config";
 import { ClipReveal, Reveal } from "@/components/ui/Reveal";
 import ScheduleModal, { type Meeting } from "@/components/ui/ScheduleModal";
 
@@ -30,6 +31,8 @@ export default function Contact() {
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<Status>("idle");
   const [sendError, setSendError] = useState("");
+  /** true while a request is in flight (the dialog stays open and shows it) */
+  const [busy, setBusy] = useState(false);
 
   // step 1: validate, then ask whether they want to book a call
   const onSubmit = (ev: FormEvent) => {
@@ -45,12 +48,36 @@ export default function Contact() {
     setStatus("scheduling");
   };
 
-  // step 2: static form, nothing is sent anywhere; just show the confirmation
+  // step 2: send once, with or without a meeting; the server picks the matching confirmation mail
   const send = async (meeting?: Meeting): Promise<boolean> => {
+    if (busy) return false;
+    setBusy(true);
     setSendError("");
-    setStatus(meeting ? "booked" : "sent");
-    setValues(EMPTY);
-    return true;
+    try {
+      const res = await fetch(`${API_BASE}/api/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: values.name.trim(),
+          company: values.company.trim(),
+          phone: values.phone.trim(),
+          email: values.email.trim(),
+          ...(meeting ? { meeting } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || contactForm.errors.send);
+      }
+      setStatus(meeting ? "booked" : "sent");
+      setValues(EMPTY);
+      return true;
+    } catch (err) {
+      setSendError(err instanceof Error && err.message ? err.message : contactForm.errors.send);
+      return false;
+    } finally {
+      setBusy(false);
+    }
   };
 
   const done = status === "booked" || status === "sent";
@@ -119,7 +146,7 @@ export default function Contact() {
 
       <ScheduleModal
         open={status === "scheduling"}
-        busy={false}
+        busy={busy}
         error={sendError}
         onBook={(m) => send(m)}
         onSkip={() => void send()}

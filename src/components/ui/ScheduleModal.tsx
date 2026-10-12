@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { contactForm } from "@/content/copy";
+import { API_BASE } from "@/config";
 
-export type Meeting = { startISO: string; timeZone: string };
+export type Meeting = { startISO: string };
+
+/** Booking window reported by the server. Times are always shown in the host's time zone. */
+type Window = { timeZone: string; zoneName: string; minDate: string; maxDate: string };
 
 type Props = {
   open: boolean;
@@ -16,15 +20,6 @@ type Props = {
   onClose: () => void;
 };
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const MAX_DAYS = 60;
-const START_HOUR = 9;
-const END_HOUR = 18;
-const SLOT_MIN = 30;
-const NOTICE_HOURS = 2;
-const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-
 /**
  * "Schedule a meet" dialog shown after the form is submitted. Free times come from the server
  * (working hours, minus whatever is already busy on the calendar), shown in the visitor's own time zone.
@@ -32,16 +27,14 @@ const timeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
  */
 export default function ScheduleModal({ open, busy, error, onBook, onSkip, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [win, setWin] = useState<Window | null>(null);
   const [date, setDate] = useState("");
   const [slots, setSlots] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [chosen, setChosen] = useState("");
   const [localError, setLocalError] = useState("");
-
-  const { today, last } = useMemo(() => {
-    const d = new Date();
-    return { today: ymd(d), last: ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + MAX_DAYS)) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const d = ref.current;
@@ -50,26 +43,49 @@ export default function ScheduleModal({ open, busy, error, onBook, onSkip, onClo
     if (!open && d.open) d.close();
   }, [open]);
 
-  /** Static slots for a local calendar day (yyyy-mm-dd): working hours on weekdays, no server involved. */
+  // booking window (time zone, first and last bookable day) from the server
+  useEffect(() => {
+    if (!open || win) return;
+    const ctl = new AbortController();
+    fetch(`${API_BASE}/api/slots`, { signal: ctl.signal })
+      .then((r) => (r.ok ? (r.json() as Promise<Window>) : Promise.reject(new Error("window"))))
+      .then(setWin)
+      .catch(() => {
+        /* the date picker simply stays unrestricted; slots still validate on the server */
+      });
+    return () => ctl.abort();
+  }, [open, win]);
+
+  // cancel any in-flight request when the dialog unmounts
+  useEffect(() => () => abort.current?.abort(), []);
+
+  /** Load the free slots for a local calendar day (yyyy-mm-dd). Called from event handlers. */
   const loadSlots = (day: string) => {
+    abort.current?.abort();
+    setSlots([]);
     setChosen("");
+    setLoadError("");
     if (!day) {
-      setSlots([]);
+      setLoading(false);
       return;
     }
-    const [y, m, d] = day.split("-").map(Number);
-    const dow = new Date(y, m - 1, d).getDay();
-    if (dow === 0 || dow === 6) {
-      setSlots([]);
-      return;
-    }
-    const earliest = Date.now() + NOTICE_HOURS * 3_600_000;
-    const out: string[] = [];
-    for (let mins = START_HOUR * 60; mins + SLOT_MIN <= END_HOUR * 60; mins += SLOT_MIN) {
-      const t = new Date(y, m - 1, d, 0, mins);
-      if (t.getTime() >= earliest) out.push(t.toISOString());
-    }
-    setSlots(out);
+    const ctl = new AbortController();
+    abort.current = ctl;
+    setLoading(true);
+    fetch(`${API_BASE}/api/slots?date=${encodeURIComponent(day)}`, { signal: ctl.signal })
+      .then(async (r) => {
+        const body = (await r.json().catch(() => null)) as (Partial<Window> & { slots?: string[]; error?: string }) | null;
+        if (!r.ok) throw new Error(body?.error || contactForm.schedule.errors.load);
+        setSlots(body?.slots ?? []);
+        if (body?.timeZone && body.zoneName && body.minDate && body.maxDate) setWin({ timeZone: body.timeZone, zoneName: body.zoneName, minDate: body.minDate, maxDate: body.maxDate });
+      })
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setLoadError(e instanceof Error && e.message ? e.message : contactForm.schedule.errors.load);
+      })
+      .finally(() => {
+        if (!ctl.signal.aborted) setLoading(false);
+      });
   };
 
   const book = async () => {
@@ -78,12 +94,12 @@ export default function ScheduleModal({ open, busy, error, onBook, onSkip, onClo
       return;
     }
     setLocalError("");
-    const ok = await onBook({ startISO: chosen, timeZone: timeZone() });
+    const ok = await onBook({ startISO: chosen });
     // e.g. the time was just taken: refresh the list so it disappears
     if (!ok) loadSlots(date);
   };
 
-  const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: win?.timeZone });
 
   return (
     <dialog
@@ -122,7 +138,7 @@ export default function ScheduleModal({ open, busy, error, onBook, onSkip, onClo
           <span className="mono mb-1.5 block px-2 text-[0.66rem] uppercase tracking-[0.2em] text-mute">{contactForm.schedule.date}</span>
           <input
             type="date"
-            min={today} max={last}
+            min={win?.minDate} max={win?.maxDate}
             value={date}
             onChange={(e) => {
               setDate(e.target.value);
@@ -136,11 +152,15 @@ export default function ScheduleModal({ open, busy, error, onBook, onSkip, onClo
         <div className="mt-5">
           <p className="mono mb-2 flex flex-wrap justify-between gap-x-3 px-2 text-[0.66rem] uppercase tracking-[0.2em] text-mute">
             <span>{contactForm.schedule.time}</span>
-            <span className="normal-case tracking-normal">{timeZone()}</span>
+            <span className="normal-case tracking-normal">{win?.zoneName}</span>
           </p>
           <div aria-live="polite" className="min-h-[3.5rem]">
             {!date ? (
               <p className="px-2 text-sm text-mute">{contactForm.schedule.pickDate}</p>
+            ) : loading ? (
+              <p className="px-2 text-sm text-mute">{contactForm.schedule.loading}</p>
+            ) : loadError ? (
+              <p className="px-2 text-sm text-red-300">{loadError}</p>
             ) : slots.length === 0 ? (
               <p className="px-2 text-sm text-mute">{contactForm.schedule.none}</p>
             ) : (
