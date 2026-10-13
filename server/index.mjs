@@ -226,7 +226,7 @@ async function handleContact(req, res) {
           email,
           company,
           phone,
-          ownerName: env.fromName,
+          ownerName: `${env.team} (${env.fromEmail})`,
         })
       ).meetLink;
     } catch (err) {
@@ -332,5 +332,5 @@ http
     }
   })
   .listen(PORT, () => {
-    console.log(`Server on :${PORT}${DRY_RUN ? " (SendGrid not configured: dry-run mode, mails are only logged)" : ""}${googleEnabled ? " | Google Calendar on" : " | fixed MEETING_LINK mode"}`);
+    console.log(`Server on :${PORT}${DRY_RUN ? " (Google not configured: dry-run mode, mails are only logged)" : ""}${googleEnabled ? " | Google Calendar + Gmail on" : " | fixed MEETING_LINK mode"}`);
   });
