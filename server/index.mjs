@@ -246,7 +246,7 @@ async function handleContact(req, res) {
   try {
     // one mail: To the visitor, Cc the team address(es)
     const person = { name, company, phone, email };
-    const common = { person, brand: env.brand, team: env.team, siteUrl: env.siteUrl };
+    const common = { person, brand: env.brand, team: env.team, siteUrl: env.siteUrl, logoUrl: env.siteUrl ? `${env.siteUrl}/isn-logo.png` : "" };
     let mail;
     if (booking) {
       const endMs = booking.start.getTime() + rules.durationMin * 60_000;
