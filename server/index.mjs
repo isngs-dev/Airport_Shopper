@@ -1,16 +1,17 @@
 /**
- * Tiny production server: serves the built site (dist/) and handles POST /api/contact,
- * which sends the confirmation mail through SendGrid.
+ * Tiny production server: serves the built site (dist/) and handles POST /api/contact, which sends the
+ * confirmation mail through the Gmail API (From: the authenticated Google account, Cc: MAIL_CC).
  *
  * Environment (see .env.example):
- *   SENDGRID_API_KEY      SendGrid API key. Without it the server runs in dry-run mode (logs mails, sends nothing).
- *   SENDGRID_FROM_EMAIL   Verified sender address in SendGrid.
- *   SENDGRID_FROM_NAME    Sender display name (default "iSN").
- *   MEETING_LINK          Meeting URL included in the mail when the visitor books a call.
- *   NOTIFY_EMAIL          Optional. Receives a copy of every lead (comma separated for several).
- *   GOOGLE_*              Optional Google Calendar integration, see server/google.mjs. When enabled, booked calls
- *                         get a Google Meet link and busy times on the calendar are not offered. Otherwise
- *                         MEETING_LINK is used.
+ *   GOOGLE_CLIENT_ID / _SECRET / _REFRESH_TOKEN  Google OAuth (calendar + gmail.send scopes). Without them the server runs
+ *                         in dry-run mode: mails are logged, not sent, and MEETING_LINK is used for bookings.
+ *   MAIL_FROM_EMAIL       The Gmail / Workspace address that sends the mail (must be the account of the token).
+ *   EMAIL_BRAND           Product name in the mail header, subject and sender name (default "Airport Mystery Shopping").
+ *   EMAIL_TEAM            Team name in the text ("your call with the iSN team"), default "iSN".
+ *   MAIL_CC               Comma separated addresses that get every confirmation in Cc.
+ *   SITE_URL              Public site address, shown in the mail footer.
+ *   MEETING_LINK          Fallback meeting URL when Google Calendar is not configured.
+ *   GOOGLE_CALENDAR_ID    Calendar that receives bookings (default "primary"); see server/google.mjs.
  *   MEETING_*             Working hours / time zone / slot length, see server/slots.mjs.
  *   PORT                  Port to listen on (Render sets it; default 8787).
  *
@@ -22,22 +23,23 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { candidateSlots, ownerDate, removeBusy, rules, slotsForDate, zoneName } from "./slots.mjs";
 import { googleEnabled, getBusy, createMeeting } from "./google.mjs";
-import { bookedEmail, leadEmail, receivedEmail } from "./email.mjs";
+import { bookedEmail, receivedEmail } from "./email.mjs";
+import { gmailSend } from "./gmail.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(here, "../dist");
 const PORT = Number(process.env.PORT) || 8787;
 
 const env = {
-  apiKey: process.env.SENDGRID_API_KEY || "",
-  fromEmail: process.env.SENDGRID_FROM_EMAIL || "",
-  fromName: process.env.SENDGRID_FROM_NAME || "iSN",
+  fromEmail: process.env.MAIL_FROM_EMAIL || "",
   brand: process.env.EMAIL_BRAND || "Airport Mystery Shopping",
+  team: process.env.EMAIL_TEAM || "iSN",
   siteUrl: (process.env.SITE_URL || "").replace(/\/$/, ""),
   meetingLink: process.env.MEETING_LINK || "",
-  notify: (process.env.NOTIFY_EMAIL || "").split(",").map((s) => s.trim()).filter(Boolean),
+  cc: (process.env.MAIL_CC || "").split(",").map((x) => x.trim()).filter(Boolean),
 };
-const DRY_RUN = !env.apiKey;
+// no Google credentials: dry-run, mails are only logged
+const DRY_RUN = !googleEnabled;
 const DAY = 86_400_000;
 
 const MIME = {
@@ -90,6 +92,18 @@ function limited(ip) {
   return list.length > 8;
 }
 
+function formatShort(iso) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+    timeZone: rules.timeZone,
+  }).format(new Date(iso));
+}
+
 function formatWhen(iso, timeZone = rules.timeZone) {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -103,30 +117,12 @@ function formatWhen(iso, timeZone = rules.timeZone) {
   }).format(new Date(iso));
 }
 
-async function sendMail({ to, subject, text, html, attachments }) {
+async function sendMail({ to, cc, subject, text, html }) {
   if (DRY_RUN) {
-    console.log(`[dry-run] mail to ${to}\nSubject: ${subject}\n${text}\n`);
+    console.log(`[dry-run] mail to ${to}${cc?.length ? ` cc ${cc.join(", ")}` : ""}\nSubject: ${subject}\n${text}\n`);
     return;
   }
-  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: env.fromEmail, name: env.fromName },
-      subject,
-      content: [
-        { type: "text/plain", value: text },
-        { type: "text/html", value: html },
-      ],
-      tracking_settings: { click_tracking: { enable: false, enable_text: false }, open_tracking: { enable: false } },
-      ...(attachments ? { attachments } : {}),
-    }),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`SendGrid ${res.status}: ${detail.slice(0, 300)}`);
-  }
+  await gmailSend({ from: { email: env.fromEmail, name: env.brand }, to: [to], cc: cc ?? [], replyTo: env.fromEmail, subject, text, html });
 }
 
 /* ---------- /api/slots ---------- */
@@ -211,7 +207,7 @@ async function handleContact(req, res) {
         localWhen = "";
       }
     }
-    booking = { start, when: formatWhen(start.toISOString()), localWhen };
+    booking = { start, when: formatWhen(start.toISOString()), whenShort: formatShort(start.toISOString()), localWhen };
   }
 
   let link = env.meetingLink || (DRY_RUN ? "https://example.com/meeting-link" : "");
@@ -243,14 +239,14 @@ async function handleContact(req, res) {
     return json(res, 500, { error: "Booking is temporarily unavailable. Please choose 'No, thanks, just email me'." });
   }
   if (!DRY_RUN && !env.fromEmail) {
-    console.error("SENDGRID_FROM_EMAIL is not set");
+    console.error("MAIL_FROM_EMAIL is not set");
     return json(res, 500, { error: "Something went wrong. Please try again." });
   }
 
   try {
-    // 1. confirmation to the visitor
+    // one mail: To the visitor, Cc the team address(es)
     const person = { name, company, phone, email };
-    const common = { person, brand: env.brand, team: env.fromName, siteUrl: env.siteUrl, logoUrl: env.siteUrl ? `${env.siteUrl}/isn-logo.png` : "" };
+    const common = { person, brand: env.brand, team: env.team, siteUrl: env.siteUrl };
     let mail;
     if (booking) {
       const endMs = booking.start.getTime() + rules.durationMin * 60_000;
@@ -259,22 +255,24 @@ async function handleContact(req, res) {
         "https://calendar.google.com/calendar/render?" +
         new URLSearchParams({
           action: "TEMPLATE",
-          text: `Call with ${env.fromName}`,
+          text: `${env.brand} call with ${env.team}`,
           dates: `${stamp(booking.start.getTime())}/${stamp(endMs)}`,
           details: `Meeting link: ${link}`,
           location: link,
         });
-      mail = bookedEmail({ ...common, when: booking.when, localWhen: booking.localWhen, durationMin: rules.durationMin, meetLink: link, calendarUrl });
+      mail = bookedEmail({
+        ...common,
+        when: booking.when,
+        whenShort: booking.whenShort,
+        localWhen: booking.localWhen,
+        durationMin: rules.durationMin,
+        meetLink: link,
+        calendarUrl,
+      });
     } else {
       mail = receivedEmail(common);
     }
-    await sendMail({ to: email, ...mail });
-
-    // 2. copy of the lead for the team
-    for (const to of env.notify) {
-      const lead = leadEmail({ person, brand: env.brand, when: booking?.when, meetLink: booking ? link : "", logoUrl: common.logoUrl });
-      await sendMail({ to, ...lead });
-    }
+    await sendMail({ to: email, cc: env.cc.filter((c) => c.toLowerCase() !== email.toLowerCase()), ...mail });
   } catch (err) {
     console.error("[contact] mail failed:", err.message);
     return json(res, 502, { error: "We could not send the confirmation email. Please try again." });

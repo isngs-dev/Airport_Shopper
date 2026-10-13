@@ -3,7 +3,8 @@
  *
  *   1. Google Cloud Console: enable the "Google Calendar API", create OAuth client credentials of type "Desktop app".
  *   2. Put GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env
- *   3. npm run google:auth, open the printed link, sign in with the account whose calendar should receive bookings.
+ *   3. npm run google:auth, open the printed link, sign in with the account whose calendar should receive bookings
+ *      AND that should send the confirmation mails (the Gmail API sends as this account).
  */
 import http from "node:http";
 
@@ -16,7 +17,11 @@ if (!id || !secret) {
 
 const PORT = 53682;
 const redirect = `http://localhost:${PORT}/oauth2callback`;
-const scope = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.freebusy"].join(" ");
+const scope = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.freebusy",
+  "https://www.googleapis.com/auth/gmail.send", // confirmation mails are sent from this account
+].join(" ");
 
 const authUrl =
   "https://accounts.google.com/o/oauth2/v2/auth?" +

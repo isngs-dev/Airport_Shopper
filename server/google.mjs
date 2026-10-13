@@ -16,7 +16,7 @@ export const googleEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOG
 
 let cached = { token: "", expires: 0 };
 
-async function accessToken() {
+export async function accessToken() {
   if (cached.token && Date.now() < cached.expires - 60_000) return cached.token;
   const res = await fetch(TOKEN_URL, {
     method: "POST",

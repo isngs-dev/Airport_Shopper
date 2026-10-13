@@ -12,17 +12,6 @@ services:
       - key: VITE_APPLY_URL
         sync: false
       # read by the server at runtime (secrets: keep them in Render, never in git)
-      - key: SENDGRID_API_KEY
-        sync: false
-      - key: SENDGRID_FROM_EMAIL
-        sync: false
-      - key: SENDGRID_FROM_NAME
-        value: iSN
-      - key: MEETING_LINK
-        sync: false
-      - key: NOTIFY_EMAIL
-        sync: false
-      # Google Calendar (optional, see .env.example)
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -31,6 +20,18 @@ services:
         sync: false
       - key: GOOGLE_CALENDAR_ID
         value: primary
-      # Booking rules: working hours are evaluated in this time zone
-      - key: MEETING_TIMEZONE
+      - key: MAIL_FROM_EMAIL
         sync: false
+      - key: MAIL_CC
+        sync: false
+      - key: EMAIL_BRAND
+        value: Airport Mystery Shopping
+      - key: EMAIL_TEAM
+        value: iSN
+      - key: SITE_URL
+        sync: false
+      - key: MEETING_LINK
+        sync: false
+      # working hours are evaluated in this time zone
+      - key: MEETING_TIMEZONE
+        value: America/New_York
