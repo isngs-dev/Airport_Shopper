@@ -185,7 +185,8 @@ async function handleContact(req, res) {
   const company = clean(data.company, 160);
   const phone = clean(data.phone, 40);
   const email = clean(data.email, 200);
-  if (!name || !company || phone.replace(/\D/g, "").length < 7 || !EMAIL_RE.test(email)) {
+  // US numbers only: 10 digits (optional +1), area code and exchange never start with 0 or 1
+  if (!name || !company || !/^1?[2-9]\d{2}[2-9]\d{6}$/.test(phone.replace(/\D/g, "")) || !EMAIL_RE.test(email)) {
     return json(res, 400, { error: "Please check your details and try again." });
   }
 

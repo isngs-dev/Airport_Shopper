@@ -95,7 +95,7 @@ export const contactForm = {
   fields: {
     name: "Name",
     company: "Company Name",
-    phone: "Phone",
+    phone: "US Phone (555) 555-1234",
     email: "Email",
   },
   submit: "Submit",
@@ -121,7 +121,7 @@ export const contactForm = {
   errors: {
     name: "Please enter your name.",
     company: "Please enter your company name.",
-    phone: "Please enter a valid phone number.",
+    phone: "Please enter a valid 10-digit US phone number.",
     email: "Please enter a valid email address.",
     send: "Something went wrong. Please try again.",
   },

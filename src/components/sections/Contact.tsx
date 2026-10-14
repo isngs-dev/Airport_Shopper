@@ -11,11 +11,22 @@ type Status = "idle" | "scheduling" | "sending" | "booked" | "sent";
 
 const EMPTY: Values = { name: "", company: "", phone: "", email: "" };
 
+/** US number digits without the +1 country code (area codes never start with 1). */
+const usDigits = (raw: string) => raw.replace(/\D/g, "").replace(/^1/, "").slice(0, 10);
+
+/** Formats as the visitor types: (555) 555-1234. Separators only appear once a digit follows, so backspace works. */
+function formatUsPhone(raw: string) {
+  const d = usDigits(raw);
+  if (d.length <= 3) return d && `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
 function validate(v: Values): Errors {
   const e: Errors = {};
   if (!v.name.trim()) e.name = contactForm.errors.name;
   if (!v.company.trim()) e.company = contactForm.errors.company;
-  if (v.phone.replace(/\D/g, "").length < 7) e.phone = contactForm.errors.phone;
+  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(usDigits(v.phone))) e.phone = contactForm.errors.phone;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email.trim())) e.email = contactForm.errors.email;
   return e;
 }
@@ -122,7 +133,8 @@ export default function Contact() {
                           placeholder={contactForm.fields[f.key]}
                           value={values[f.key]}
                           onChange={(e) => {
-                            setValues((v) => ({ ...v, [f.key]: e.target.value }));
+                            const value = f.key === "phone" ? formatUsPhone(e.target.value) : e.target.value;
+                            setValues((v) => ({ ...v, [f.key]: value }));
                             if (err) setErrors((x) => ({ ...x, [f.key]: undefined }));
                           }}
                           aria-invalid={!!err}
