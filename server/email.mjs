@@ -82,20 +82,21 @@ const footerText = (siteUrl) => `You received this email because you submitted t
 
 const textDetails = (person) => ["Details you sent:", `Name: ${person.name}`, `Company: ${person.company}`, `Phone: ${person.phone}`, `Email: ${person.email}`];
 
-/* ---------- call booked ---------- */
+/* ---------- call booked (or, with reminder: true, the day-before reminder) ---------- */
 
-export function bookedEmail({ person, brand, team, when, whenShort, localWhen, durationMin, meetLink, calendarUrl, siteUrl, logoUrl }) {
-  const subject = `Confirmed: your ${brand} call on ${whenShort}`;
+export function bookedEmail({ person, brand, team, when, whenShort, localWhen, durationMin, meetLink, calendarUrl, siteUrl, logoUrl, reminder = false }) {
+  const subject = `${reminder ? "Reminder" : "Confirmed"}: your ${brand} call on ${whenShort}`;
+  const intro = reminder ? `a reminder that your call with the ${team} team is coming up.` : `your call with the ${team} team is confirmed.`;
   const html = layout({
     title: subject,
     preview: `${when}. Your meeting link is inside.`,
     brand,
-    pill: "Meeting confirmed",
+    pill: reminder ? "Meeting reminder" : "Meeting confirmed",
     logoUrl,
     footer: footerHtml(siteUrl),
     bodyHtml:
-      h1("Your meeting is confirmed") +
-      p(`Hi ${esc(person.name)}, your call with the ${esc(team)} team is confirmed.`) +
+      h1(reminder ? "Your meeting is coming up" : "Your meeting is confirmed") +
+      p(`Hi ${esc(person.name)}, ${esc(intro)}`) +
       panel(
         label("When") +
           `<div style="margin:4px 0 0;font-size:18px;font-weight:700;color:${C.ink}">${esc(when)}</div>` +
@@ -111,7 +112,7 @@ export function bookedEmail({ person, brand, team, when, whenShort, localWhen, d
   const text = [
     `Hi ${person.name},`,
     "",
-    `Your call with the ${team} team is confirmed.`,
+    intro[0].toUpperCase() + intro.slice(1),
     "",
     `When: ${when}`,
     localWhen ? `Your time: ${localWhen}` : null,

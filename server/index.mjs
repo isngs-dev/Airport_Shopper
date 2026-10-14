@@ -22,7 +22,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { candidateSlots, ownerDate, removeBusy, rules, slotsForDate, zoneName } from "./slots.mjs";
-import { googleEnabled, getBusy, createMeeting } from "./google.mjs";
+import { googleEnabled, getBusy, createMeeting, pendingReminders, updatePrivate } from "./google.mjs";
 import { bookedEmail, receivedEmail } from "./email.mjs";
 import { gmailSend } from "./gmail.mjs";
 
@@ -117,6 +117,33 @@ function formatWhen(iso, timeZone = rules.timeZone) {
   }).format(new Date(iso));
 }
 
+const mailCommon = (person) => ({ person, brand: env.brand, team: env.team, siteUrl: env.siteUrl, logoUrl: env.siteUrl ? `${env.siteUrl}/isn-logo.png` : "" });
+
+/** The mail for a booked call: the confirmation, or with reminder: true the day-before reminder. */
+function meetingMail({ person, startMs, durationMin, link, clientZone, reminder = false }) {
+  const iso = new Date(startMs).toISOString();
+  // the visitor's own zone, shown as a second line in the mail when it differs from the host's
+  let localWhen = "";
+  if (clientZone && clientZone !== rules.timeZone) {
+    try {
+      localWhen = formatWhen(iso, clientZone);
+    } catch {
+      localWhen = "";
+    }
+  }
+  const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const calendarUrl =
+    "https://calendar.google.com/calendar/render?" +
+    new URLSearchParams({
+      action: "TEMPLATE",
+      text: `${env.brand} call with ${env.team}`,
+      dates: `${stamp(startMs)}/${stamp(startMs + durationMin * 60_000)}`,
+      details: `Meeting link: ${link}`,
+      location: link,
+    });
+  return bookedEmail({ ...mailCommon(person), when: formatWhen(iso), whenShort: formatShort(iso), localWhen, durationMin, meetLink: link, calendarUrl, reminder });
+}
+
 async function sendMail({ to, cc, subject, text, html }) {
   if (DRY_RUN) {
     console.log(`[dry-run] mail to ${to}${cc?.length ? ` cc ${cc.join(", ")}` : ""}\nSubject: ${subject}\n${text}\n`);
@@ -198,17 +225,8 @@ async function handleContact(req, res) {
     if (Number.isNaN(start.getTime()) || !candidateSlots(start.getTime(), start.getTime() + 1).includes(start.getTime())) {
       return json(res, 400, { error: "Please choose one of the available times." });
     }
-    // optional: the visitor's own zone, shown as a second line in the mail when it differs from the host's
-    const clientZone = clean(data.meeting.timeZone, 64);
-    let localWhen = "";
-    if (clientZone && clientZone !== rules.timeZone) {
-      try {
-        localWhen = formatWhen(start.toISOString(), clientZone);
-      } catch {
-        localWhen = "";
-      }
-    }
-    booking = { start, when: formatWhen(start.toISOString()), whenShort: formatShort(start.toISOString()), localWhen };
+    // optional: the visitor's own time zone, for the second time line in the mails
+    booking = { start, clientZone: clean(data.meeting.timeZone, 64) };
   }
 
   let link = env.meetingLink || (DRY_RUN ? "https://example.com/meeting-link" : "");
@@ -228,6 +246,11 @@ async function handleContact(req, res) {
           company,
           phone,
           ownerName: `${env.team} (${env.fromEmail})`,
+          // more than a day ahead: tag it for the day-before reminder (see sendReminders)
+          props:
+            booking.start.getTime() - Date.now() > DAY
+              ? { reminder: "pending", name, company, phone, email, tz: booking.clientZone }
+              : {},
         })
       ).meetLink;
     } catch (err) {
@@ -247,32 +270,9 @@ async function handleContact(req, res) {
   try {
     // one mail: To the visitor, Cc the team address(es)
     const person = { name, company, phone, email };
-    const common = { person, brand: env.brand, team: env.team, siteUrl: env.siteUrl, logoUrl: env.siteUrl ? `${env.siteUrl}/isn-logo.png` : "" };
-    let mail;
-    if (booking) {
-      const endMs = booking.start.getTime() + rules.durationMin * 60_000;
-      const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-      const calendarUrl =
-        "https://calendar.google.com/calendar/render?" +
-        new URLSearchParams({
-          action: "TEMPLATE",
-          text: `${env.brand} call with ${env.team}`,
-          dates: `${stamp(booking.start.getTime())}/${stamp(endMs)}`,
-          details: `Meeting link: ${link}`,
-          location: link,
-        });
-      mail = bookedEmail({
-        ...common,
-        when: booking.when,
-        whenShort: booking.whenShort,
-        localWhen: booking.localWhen,
-        durationMin: rules.durationMin,
-        meetLink: link,
-        calendarUrl,
-      });
-    } else {
-      mail = receivedEmail(common);
-    }
+    const mail = booking
+      ? meetingMail({ person, startMs: booking.start.getTime(), durationMin: rules.durationMin, link, clientZone: booking.clientZone })
+      : receivedEmail(mailCommon(person));
     await sendMail({ to: email, cc: env.cc.filter((c) => c.toLowerCase() !== email.toLowerCase()), ...mail });
   } catch (err) {
     console.error("[contact] mail failed:", err.message);
@@ -280,6 +280,35 @@ async function handleContact(req, res) {
   }
 
   json(res, 200, { ok: true, booked: !!booking });
+}
+
+/* ---------- day-before reminders ---------- */
+
+// Bookings made more than a day ahead carry reminder=pending on their calendar event. The event is the only store,
+// so the state survives restarts and redeploys, and a deleted event gets no reminder. Every 10 minutes: mail the
+// visitor for each such meeting starting within 24 hours, then mark it "sent".
+// ponytail: runs only while the server is awake; a sleeping (free) Render instance sends late, ping /healthz if so.
+async function sendReminders() {
+  const now = Date.now();
+  for (const ev of await pendingReminders(now, now + DAY)) {
+    const p = ev.extendedProperties.private;
+    try {
+      const startMs = Date.parse(ev.start.dateTime);
+      const durationMin = Math.round((Date.parse(ev.end.dateTime) - startMs) / 60_000);
+      const person = { name: p.name, company: p.company, phone: p.phone, email: p.email };
+      await sendMail({ to: p.email, ...meetingMail({ person, startMs, durationMin, link: ev.hangoutLink || "", clientZone: p.tz, reminder: true }) });
+      await updatePrivate(ev, { reminder: "sent" });
+      console.log(`[reminder] sent for event ${ev.id} (${ev.start.dateTime})`);
+    } catch (err) {
+      console.error(`[reminder] event ${ev.id} failed:`, err.message);
+    }
+  }
+}
+
+if (googleEnabled) {
+  const tick = () => sendReminders().catch((err) => console.error("[reminder] lookup failed:", err.message));
+  tick();
+  setInterval(tick, 10 * 60_000);
 }
 
 /* ---------- static files + SPA fallback ---------- */

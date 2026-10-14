@@ -58,9 +58,15 @@ export async function getBusy(fromMs, toMs) {
   return cal?.busy ?? [];
 }
 
-/** Creates the event with a Google Meet link; returns { meetLink, eventLink, eventId }. */
-export async function createMeeting({ startMs, durationMin, name, email, company, phone, ownerName }) {
-  const event = await call("POST", `${API}/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=none`, {
+const EVENTS = `${API}/calendars/${encodeURIComponent(CALENDAR_ID)}/events`;
+
+/**
+ * Creates the event with a Google Meet link; returns { meetLink, eventLink, eventId }.
+ * `props` go into the event's private extended properties (invisible to guests), e.g. the reminder state.
+ */
+export async function createMeeting({ startMs, durationMin, name, email, company, phone, ownerName, props = {} }) {
+  const event = await call("POST", `${EVENTS}?conferenceDataVersion=1&sendUpdates=none`, {
+    extendedProperties: { private: { source: "website", ...props } },
     summary: `Call with ${name} (${company})`,
     description: `Booked from the website.\nName: ${name}\nCompany: ${company}\nPhone: ${phone}\nEmail: ${email}\n\nHost: ${ownerName}`,
     start: { dateTime: new Date(startMs).toISOString(), timeZone: "UTC" },
@@ -71,4 +77,25 @@ export async function createMeeting({ startMs, durationMin, name, email, company
   const meetLink = event.hangoutLink || event.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri || "";
   if (!meetLink) throw new Error("Google Calendar created the event but returned no Meet link");
   return { meetLink, eventLink: event.htmlLink || "", eventId: event.id };
+}
+
+/** Website bookings starting in [fromMs, toMs) whose reminder mail has not been sent yet. */
+export async function pendingReminders(fromMs, toMs) {
+  const q = new URLSearchParams({
+    timeMin: new Date(fromMs).toISOString(),
+    timeMax: new Date(toMs).toISOString(),
+    singleEvents: "true",
+    privateExtendedProperty: "reminder=pending",
+    maxResults: "250",
+  });
+  const data = await call("GET", `${EVENTS}?${q}`);
+  // timeMin matches on the end time, so drop meetings that have already started
+  return (data.items ?? []).filter((e) => Date.parse(e.start?.dateTime) >= fromMs);
+}
+
+/** Merges `props` into the event's private extended properties (PATCH replaces the whole map, so send it all). */
+export async function updatePrivate(event, props) {
+  await call("PATCH", `${EVENTS}/${encodeURIComponent(event.id)}?sendUpdates=none`, {
+    extendedProperties: { private: { ...event.extendedProperties?.private, ...props } },
+  });
 }
