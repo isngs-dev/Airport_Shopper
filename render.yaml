@@ -8,9 +8,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
-      # baked into the site at build time
-      - key: VITE_APPLY_URL
-        sync: false
       # read by the server at runtime (secrets: keep them in Render, never in git)
       - key: GOOGLE_CLIENT_ID
         sync: false
