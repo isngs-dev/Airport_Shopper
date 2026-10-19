@@ -6,7 +6,7 @@ import { PaymentScene } from "@/components/three/lazy";
 import { gsap, ScrollTrigger } from "@/lib/gsap";
 import { useReducedMotion } from "@/hooks/useQuality";
 
-/* ---------- animated "$15 Per Shop" counter ---------- */
+/* ---------- animated "$30 Per Shop" counter ---------- */
 
 function PriceCounter() {
   const { amount, suffix } = content.payment.highlight;

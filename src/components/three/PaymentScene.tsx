@@ -64,7 +64,7 @@ function spawn(s: Sim, i: number, initial: boolean) {
   s.jitter[i] = r() * 0.22;
 }
 
-/** Hand-rolled rigid-ish physics: gravity, floor bounce with restitution, walls, and the "$15" slab. */
+/** Hand-rolled rigid-ish physics: gravity, floor bounce with restitution, walls, and the "$30" slab. */
 function step(s: Sim, i: number, dt: number, box: THREE.Box3 | null) {
   const p = s.pos;
   const v = s.vel;
@@ -239,7 +239,7 @@ function Rain({ coins, tickets, box, physics, animate }: { coins: number; ticket
   );
 }
 
-/* ---------- the extruded $15 ---------- */
+/* ---------- the extruded $30 ---------- */
 
 function Price({ box, animate }: { box: React.RefObject<THREE.Box3 | null>; animate: boolean }) {
   const group = useRef<THREE.Group>(null);
@@ -278,7 +278,7 @@ function Price({ box, animate }: { box: React.RefObject<THREE.Box3 | null>; anim
           bevelSegments={5}
           letterSpacing={0.05}
         >
-          {"$15"}
+          {"$30"}
           <meshStandardMaterial color="#ffb703" metalness={1} roughness={0.22} envMapIntensity={1.6} />
         </Text3D>
       </Center>
@@ -347,7 +347,7 @@ export default function PaymentScene() {
       camera={{ position: [0, 0.7, 9.5], fov: 38 }}
       fallback={
         <div aria-hidden className="grid h-full place-items-center font-display text-[7rem] font-bold leading-none text-gradient sm:text-[10rem]">
-          $15
+          $30
         </div>
       }
     >

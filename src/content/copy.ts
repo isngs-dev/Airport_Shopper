@@ -66,8 +66,8 @@ export const content = {
 
   payment: {
     heading: "Complete It. Submit It. Get Paid.",
-    highlight: { amount: 15, suffix: "Per Shop" },
-    text: "Earn $15 for each completed and accepted shop.",
+    highlight: { amount: 30, suffix: "Per Shop" },
+    text: "Earn $30 for each completed and accepted shop.",
     deadlineHeading: "Submission Deadline",
     deadlineText: "Submit your evaluation within 48 hours of your scheduled shop date.",
     deadlineHours: 48,
