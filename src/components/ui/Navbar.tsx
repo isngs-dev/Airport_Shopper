@@ -21,13 +21,9 @@ export default function Navbar() {
       </a>
       <div className="mx-auto mt-3 flex h-14 max-w-6xl items-center justify-between gap-3 rounded-full border border-white/10 bg-midnight/55 px-4 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl sm:px-6 [width:calc(100%-1.5rem)]">
         <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
+          href="https://isngs.com/"
           className="flex items-center gap-2.5 font-display text-sm font-bold tracking-wide"
-          aria-label={`${ui.siteName}, back to top`}
+          aria-label="iSN website"
         >
           {/* the logo is navy on transparent, so it sits on a light pill to stay readable on the dark bar */}
           <span className="flex items-center rounded-full bg-white px-3 py-1.5 shadow-[0_0_20px_-4px_rgba(255,255,255,0.35)]">

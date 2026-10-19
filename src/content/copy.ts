@@ -128,7 +128,6 @@ export const contactForm = {
 } as const;
 
 export const ui = {
-  siteName: "Airport Mystery Shopping",
   nav: {
     label: "Primary",
     links: [
