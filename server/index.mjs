@@ -209,11 +209,11 @@ async function handleContact(req, res) {
   }
 
   const name = clean(data.name, 120);
-  const company = clean(data.company, 160);
   const phone = clean(data.phone, 40);
   const email = clean(data.email, 200);
+  const zip = clean(data.zip, 10);
   // US numbers only: 10 digits (optional +1), area code and exchange never start with 0 or 1
-  if (!name || !company || !/^1?[2-9]\d{2}[2-9]\d{6}$/.test(phone.replace(/\D/g, "")) || !EMAIL_RE.test(email)) {
+  if (!name || !/^\d{5}(-\d{4})?$/.test(zip) || !/^1?[2-9]\d{2}[2-9]\d{6}$/.test(phone.replace(/\D/g, "")) || !EMAIL_RE.test(email)) {
     return json(res, 400, { error: "Please check your details and try again." });
   }
 
@@ -243,13 +243,13 @@ async function handleContact(req, res) {
           durationMin: rules.durationMin,
           name,
           email,
-          company,
+          zip,
           phone,
           ownerName: `${env.team} (${env.fromEmail})`,
           // more than a day ahead: tag it for the day-before reminder (see sendReminders)
           props:
             booking.start.getTime() - Date.now() > DAY
-              ? { reminder: "pending", name, company, phone, email, tz: booking.clientZone }
+              ? { reminder: "pending", name, email, zip, phone, tz: booking.clientZone }
               : {},
         })
       ).meetLink;
@@ -269,7 +269,7 @@ async function handleContact(req, res) {
 
   try {
     // one mail: To the visitor, Cc the team address(es)
-    const person = { name, company, phone, email };
+    const person = { name, email, zip, phone };
     const mail = booking
       ? meetingMail({ person, startMs: booking.start.getTime(), durationMin: rules.durationMin, link, clientZone: booking.clientZone })
       : receivedEmail(mailCommon(person));
@@ -295,7 +295,7 @@ async function sendReminders() {
     try {
       const startMs = Date.parse(ev.start.dateTime);
       const durationMin = Math.round((Date.parse(ev.end.dateTime) - startMs) / 60_000);
-      const person = { name: p.name, company: p.company, phone: p.phone, email: p.email };
+      const person = { name: p.name, email: p.email, zip: p.zip || "-", phone: p.phone };
       await sendMail({ to: p.email, ...meetingMail({ person, startMs, durationMin, link: ev.hangoutLink || "", clientZone: p.tz, reminder: true }) });
       await updatePrivate(ev, { reminder: "sent" });
       console.log(`[reminder] sent for event ${ev.id} (${ev.start.dateTime})`);

@@ -73,14 +73,14 @@ function detailsBlock(person) {
   const cell = (l, v) =>
     `<tr><td style="padding:3px 18px 3px 0;font-size:14px;color:${C.label}">${esc(l)}</td><td style="padding:3px 0;font-size:14px;color:${C.ink}">${esc(v)}</td></tr>`;
   return `<div style="margin-top:26px;padding-top:20px;border-top:1px solid ${C.line}"><div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:${C.amber}">Details you sent</div>
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${cell("Name", person.name)}${cell("Company", person.company)}${cell("Phone", person.phone)}${cell("Email", person.email)}</table></div>`;
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px">${cell("Name", person.name)}${cell("Email", person.email)}${cell("ZIP code", person.zip)}${cell("Phone", person.phone)}</table></div>`;
 }
 
 const footerHtml = (siteUrl) =>
   `You received this email because you submitted the contact form${siteUrl ? ` on <a href="${esc(siteUrl)}" style="color:${C.label}">${esc(siteUrl.replace(/^https?:\/\//, ""))}</a>` : ""}.<br>Reply to this email if you have any questions.`;
 const footerText = (siteUrl) => `You received this email because you submitted the contact form${siteUrl ? ` on ${siteUrl}` : ""}.\nReply to this email if you have any questions.`;
 
-const textDetails = (person) => ["Details you sent:", `Name: ${person.name}`, `Company: ${person.company}`, `Phone: ${person.phone}`, `Email: ${person.email}`];
+const textDetails = (person) => ["Details you sent:", `Name: ${person.name}`, `Email: ${person.email}`, `ZIP code: ${person.zip}`, `Phone: ${person.phone}`];
 
 /* ---------- call booked (or, with reminder: true, the day-before reminder) ---------- */
 

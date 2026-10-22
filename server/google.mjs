@@ -64,11 +64,11 @@ const EVENTS = `${API}/calendars/${encodeURIComponent(CALENDAR_ID)}/events`;
  * Creates the event with a Google Meet link; returns { meetLink, eventLink, eventId }.
  * `props` go into the event's private extended properties (invisible to guests), e.g. the reminder state.
  */
-export async function createMeeting({ startMs, durationMin, name, email, company, phone, ownerName, props = {} }) {
+export async function createMeeting({ startMs, durationMin, name, email, zip, phone, ownerName, props = {} }) {
   const event = await call("POST", `${EVENTS}?conferenceDataVersion=1&sendUpdates=none`, {
     extendedProperties: { private: { source: "website", ...props } },
-    summary: `Call with ${name} (${company})`,
-    description: `Booked from the website.\nName: ${name}\nCompany: ${company}\nPhone: ${phone}\nEmail: ${email}\n\nHost: ${ownerName}`,
+    summary: `Call with ${name}`,
+    description: `Booked from the website.\nName: ${name}\nEmail: ${email}\nZIP code: ${zip}\nPhone: ${phone}\n\nHost: ${ownerName}`,
     start: { dateTime: new Date(startMs).toISOString(), timeZone: "UTC" },
     end: { dateTime: new Date(startMs + durationMin * 60_000).toISOString(), timeZone: "UTC" },
     attendees: [{ email, displayName: name }],

@@ -5,11 +5,11 @@ import { ClipReveal, Reveal } from "@/components/ui/Reveal";
 import ScheduleModal, { type Meeting } from "@/components/ui/ScheduleModal";
 import SuccessTick from "@/components/ui/SuccessTick";
 
-type Values = { name: string; company: string; phone: string; email: string };
+type Values = { name: string; email: string; zip: string; phone: string };
 type Errors = Partial<Record<keyof Values, string>>;
 type Status = "idle" | "scheduling" | "sending" | "booked" | "sent";
 
-const EMPTY: Values = { name: "", company: "", phone: "", email: "" };
+const EMPTY: Values = { name: "", email: "", zip: "", phone: "" };
 
 /** US number digits without the +1 country code (area codes never start with 1). */
 const usDigits = (raw: string) => raw.replace(/\D/g, "").replace(/^1/, "").slice(0, 10);
@@ -22,20 +22,26 @@ function formatUsPhone(raw: string) {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
+/** Digits only, with the ZIP+4 hyphen added after the fifth digit: 12345 or 12345-6789. */
+function formatZip(raw: string) {
+  const d = raw.replace(/\D/g, "").slice(0, 9);
+  return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+}
+
 function validate(v: Values): Errors {
   const e: Errors = {};
   if (!v.name.trim()) e.name = contactForm.errors.name;
-  if (!v.company.trim()) e.company = contactForm.errors.company;
-  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(usDigits(v.phone))) e.phone = contactForm.errors.phone;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email.trim())) e.email = contactForm.errors.email;
+  if (!/^\d{5}(-\d{4})?$/.test(v.zip)) e.zip = contactForm.errors.zip;
+  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(usDigits(v.phone))) e.phone = contactForm.errors.phone;
   return e;
 }
 
 const FIELDS = [
   { key: "name", type: "text", autoComplete: "name", inputMode: undefined },
-  { key: "company", type: "text", autoComplete: "organization", inputMode: undefined },
-  { key: "phone", type: "tel", autoComplete: "tel", inputMode: "tel" },
   { key: "email", type: "email", autoComplete: "email", inputMode: "email" },
+  { key: "zip", type: "text", autoComplete: "postal-code", inputMode: "numeric" },
+  { key: "phone", type: "tel", autoComplete: "tel", inputMode: "tel" },
 ] as const;
 
 export default function Contact() {
@@ -71,7 +77,7 @@ export default function Contact() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: values.name.trim(),
-          company: values.company.trim(),
+          zip: values.zip,
           phone: values.phone.trim(),
           email: values.email.trim(),
           ...(meeting ? { meeting } : {}),
@@ -133,7 +139,7 @@ export default function Contact() {
                           placeholder={contactForm.fields[f.key]}
                           value={values[f.key]}
                           onChange={(e) => {
-                            const value = f.key === "phone" ? formatUsPhone(e.target.value) : e.target.value;
+                            const value = f.key === "phone" ? formatUsPhone(e.target.value) : f.key === "zip" ? formatZip(e.target.value) : e.target.value;
                             setValues((v) => ({ ...v, [f.key]: value }));
                             if (err) setErrors((x) => ({ ...x, [f.key]: undefined }));
                           }}

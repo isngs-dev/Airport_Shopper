@@ -94,9 +94,9 @@ export const contactForm = {
   heading: "Get in Touch",
   fields: {
     name: "Name",
-    company: "Company Name",
-    phone: "US Phone (555) 555-1234",
     email: "Email",
+    zip: "ZIP Code",
+    phone: "Phone Number (555) 555-1234",
   },
   submit: "Submit",
   sending: "Sending...",
@@ -120,9 +120,9 @@ export const contactForm = {
   },
   errors: {
     name: "Please enter your name.",
-    company: "Please enter your company name.",
     phone: "Please enter a valid 10-digit US phone number.",
     email: "Please enter a valid email address.",
+    zip: "Please enter a 5-digit US ZIP code.",
     send: "Something went wrong. Please try again.",
   },
 } as const;
